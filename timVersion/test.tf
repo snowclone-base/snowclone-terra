@@ -16,15 +16,10 @@ provider "aws" {
 resource "aws_default_vpc" "default_vpc" {
 }
 
-# Provide references to your default subnets
+# Provide references to your default subnet(s)
 resource "aws_default_subnet" "default_subnet_a" {
   # Use your own region here but reference to subnet 1a
   availability_zone = "us-west-2a"
-}
-
-resource "aws_default_subnet" "default_subnet_b" {
-  # Use your own region here but reference to subnet 1b
-  availability_zone = "us-west-2b"
 }
 
 # Create a Cluster
@@ -66,9 +61,8 @@ resource "aws_vpc_security_group_egress_rule" "open" {
 resource "aws_alb" "network_load_balancer" {
   name               = "load-balancer-snowclone" #load balancer name
   load_balancer_type = "network"
-  subnets = [ # Referencing the default subnets
-    "${aws_default_subnet.default_subnet_a.id}",
-    "${aws_default_subnet.default_subnet_b.id}"
+  subnets = [ # Referencing the default subnet(s)
+    "${aws_default_subnet.default_subnet_a.id}"
   ]
   # security group
   security_groups = ["${aws_security_group.load_balancer_security_group.id}"]
@@ -76,6 +70,8 @@ resource "aws_alb" "network_load_balancer" {
 
 
 # Configure Load Balancer with VPC networking
+
+# postgREST Target group
 resource "aws_lb_target_group" "postgREST" {
   name        = "postgREST-target-group"
   port        = 3000
@@ -93,7 +89,6 @@ resource "aws_lb_target_group" "db" {
   target_type = "ip"
   vpc_id      = "${aws_default_vpc.default_vpc.id}" # default VPC
 }
-
 
 # HTTP Listener
 resource "aws_lb_listener" "http_listener" {
@@ -118,7 +113,6 @@ resource "aws_lb_listener" "db_tcp" {
     target_group_arn = aws_lb_target_group.db.arn
   }
 }
-
 
 # Only allow traffic to containers from load balancer
 resource "aws_security_group" "service_security_group" {
@@ -146,7 +140,7 @@ resource "aws_ecs_task_definition" "app" {
   [
     {
       "name": "postgresDB",
-      "image": "postgres",
+      "image": "6esxh87qep2f6ksk/postgres-custom-init:latest",
       "essential": true,
       "environment": [
         {"name": "POSTGRES_PASSWORD", "value": "postgres"},
@@ -169,15 +163,22 @@ resource "aws_ecs_task_definition" "app" {
     },
     {
       "name": "postgREST",
-      "image": "postgrest/postgrest:latest",
+      "image": "6esxh87qep2f6ksk/postgrest-curl:latest",
       "essential": true,
       "environment": [
         {"name": "PGRST_DB_URI", "value": "postgres://authenticator:mysecretpassword@localhost:5432/postgres"},
         {"name": "PGRST_DB_SCHEMA", "value": "api"},
         {"name": "PGRST_DB_ANON_ROLE", "value" : "web_anon"},
         {"name": "PGRST_OPENAPI_SERVER_PROXY_URI", "value" : "http://localhost:3000"},
-        {"name": "PGRST_JWT_SECRET", "value" : "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6"}
+        {"name": "PGRST_JWT_SECRET", "value" : "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6"},
+        {"name": "PGRST_ADMIN_SERVER_PORT", "value" : "3001"}
       ],
+      "healthcheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3001/ready || exit 1"],
+        "interval": 5,
+        "timeout": 5,
+        "retries": 5
+      },
       "dependsOn": [
         {
           "containerName": "postgresDB",
@@ -187,6 +188,9 @@ resource "aws_ecs_task_definition" "app" {
       "portMappings": [
         {
           "containerPort": 3000
+        },
+        {
+          "containerPort": 3001
         }
       ],
       "memory": 512,
@@ -201,8 +205,6 @@ resource "aws_ecs_task_definition" "app" {
   # didn't need below bc my IAM user already had perms
   # execution_role_arn       = "${aws_iam_role.ecsTaskExecutionRole.arn}"
 }
-
-
 
 # Create an ECS Service:
 
@@ -230,7 +232,7 @@ resource "aws_ecs_service" "snowCloneService" {
   
 
   network_configuration {
-    subnets          = ["${aws_default_subnet.default_subnet_a.id}", "${aws_default_subnet.default_subnet_b.id}"]
+    subnets          = ["${aws_default_subnet.default_subnet_a.id}"]
     assign_public_ip = true     # Provide the containers with public IPs
     security_groups  = ["${aws_security_group.service_security_group.id}"] # Set up the security group
   }
@@ -386,7 +388,7 @@ resource "aws_lb_listener" "admin_listener" {
 
 /*
 # container definition for db-admin. took out to save on data costs for spinning up demos
- {
+{
       "name": "db-admin",
       "image": "lukepow/relay-admin:latest",
       "essential": true,
@@ -405,3 +407,12 @@ resource "aws_lb_listener" "admin_listener" {
       "cpu": 256
     }
 */    
+
+/*
+# Second default subnet
+resource "aws_default_subnet" "default_subnet_b" {
+  # Use your own region here but reference to subnet 1b
+  availability_zone = "us-west-2b"
+}
+*/
+
