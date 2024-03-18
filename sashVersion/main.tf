@@ -1,5 +1,11 @@
 provider "aws" {
-  region     = "us-east-1"
+  # region     = "us-east-1"
+  region = "us-west-2"
+}
+# provision service discovery namespace
+resource "aws_service_discovery_http_namespace" "snowclone4" {
+  name        = "snowcloneSD"
+  description = "example"
 }
 
 # provision cluster & capacity providers
@@ -7,7 +13,7 @@ resource "aws_ecs_cluster" "snowclone4" {
   name = "snowclone4"
 
   service_connect_defaults {
-    namespace = "snowclone4"
+    namespace = aws_service_discovery_http_namespace.snowclone4.arn
   }
 }
 
@@ -23,25 +29,56 @@ resource "aws_ecs_cluster_capacity_providers" "snowclone4" {
   }
 }
 
-# provision security groups
+# # provision security groups
+# resource "aws_security_group" "allow_all" {
+#   name        = "allow_all_traffic"
+#   description = "Security group that allows all inbound and outbound traffic"
+#   vpc_id      = aws_default_vpc.default_vpc.id
+
+#   ingress {
+#     from_port   = 0
+#     to_port     = 0
+#     protocol    = "-1" # -1 means all protocols
+#     cidr_blocks = ["0.0.0.0/0"]
+#   }
+
+#   egress {
+#     from_port   = 0
+#     to_port     = 0
+#     protocol    = "-1" # -1 means all protocols
+#     cidr_blocks = ["0.0.0.0/0"]
+#   }
+# }
+
+# Create a security group for the load balancer:
 resource "aws_security_group" "allow_all" {
-  name        = "allow_all_traffic"
-  description = "Security group that allows all inbound and outbound traffic"
-  vpc_id      = aws_default_vpc.default_vpc.id
-
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1" # -1 means all protocols
-    cidr_blocks = ["0.0.0.0/0"]
+  name        = "lb_sg"
+  description = "testing out ingress and egress in tf "
+  vpc_id      = "${aws_default_vpc.default_vpc.id}"
+  tags = {
+    Name = "example"
   }
+}
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1" # -1 means all protocols
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+# Ingress rule for HTTP all the way to psql calls
+resource "aws_vpc_security_group_ingress_rule" "allow_all" {
+  security_group_id = aws_security_group.allow_all.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = -1
+  # cidr_ipv4   = "0.0.0.0/0"
+  # from_port   = 80
+  # ip_protocol = "tcp"
+  # to_port     = 5432
+}
+
+
+# Egress rule
+resource "aws_vpc_security_group_egress_rule" "allow_all" {
+  security_group_id = aws_security_group.allow_all.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = -1
 }
 
 # provision ALB
@@ -85,7 +122,7 @@ resource "aws_ecs_task_definition" "postgresDB" {
   container_definitions = jsonencode([
     {
       name   = "postgresDB-container"
-      image  = "postgres:14-alpine"
+      image  = "snowclone/postgres"
       memory = 512
       cpu    = 256
       portMappings = [
@@ -130,29 +167,29 @@ resource "aws_ecs_task_definition" "postgrest-sc" {
   container_definitions = jsonencode([
     {
       name   = "postgrest-sc-container"
-      image  = "postgrest/postgrest:latest"
+      image  = "snowclone/postg-rest"
       memory = 512
       cpu    = 256
       portMappings = [
         {
-          name          = "postgrest-port-3000"
+          name="postgrest-port-3000"
           containerPort = 3000
         }
       ]
       essential = true
       environment = [
-        { "name" : "PGRST_DB_URI", "value" : "postgres://authenticator:mysecretpassword@pg-service.snowclone:5432/postgres" },
+        { "name" : "PGRST_DB_URI", "value" : "postgres://authenticator:mysecretpassword@pg-service:5432/postgres" },
         { "name" : "PGRST_DB_SCHEMA", "value" : "api" },
         { "name" : "PGRST_DB_ANON_ROLE", "value" : "web_anon" },
         { "name" : "PGRST_OPENAPI_SERVER_PROXY_URI", "value" : "http://localhost:3000" },
-        # { "name" : "PGRST_JWT_SECRET", "value" : "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6" }
+        { "name" : "PGRST_ADMIN_SERVER_PORT", "value" : "3001"}
       ],
       "healthcheck" : {
-        "command" : ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"],
-        "interval" : 30,
+        "command" : ["CMD-SHELL", "curl -f http://localhost:3001/ready || exit 1"],
+        "interval" : 5,
         "timeout" : 5,
         "startPeriod" : 10,
-        "retries" : 3
+        "retries" : 5
       },
     }
   ])
@@ -174,7 +211,7 @@ resource "aws_ecs_service" "pg-service" {
 
   service_connect_configuration {
     enabled   = true
-    namespace = "snowclone"
+    namespace = aws_service_discovery_http_namespace.snowclone4.arn
 
     service {
       client_alias {
@@ -209,7 +246,7 @@ resource "aws_ecs_service" "postgrest-service" {
 
   service_connect_configuration {
     enabled   = true
-    namespace = "snowclone"
+    namespace = aws_service_discovery_http_namespace.snowclone4.arn
 
     service {
       client_alias {
@@ -228,16 +265,21 @@ resource "aws_ecs_service" "postgrest-service" {
   }
 }
 
+#Log the load balancer app URL
+output "app_url" {
+  value = aws_lb.snowclone4-alb.dns_name
+}
+
 # VPC and private subnets
 resource "aws_default_vpc" "default_vpc" {}
 
 # Provide references to your default subnets
 resource "aws_default_subnet" "default_subnet_a" {
   # Use your own region here but reference to subnet 1a
-  availability_zone = "us-east-1a"
+  availability_zone = "us-west-2a"
 }
 
 resource "aws_default_subnet" "default_subnet_b" {
   # Use your own region here but reference to subnet 1b
-  availability_zone = "us-east-1b"
+  availability_zone = "us-west-2b"
 }
