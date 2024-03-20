@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-2"
+  region     = "us-west-2"
 }
 
 # create cloud map namespace
@@ -65,10 +65,18 @@ resource "aws_lb" "snoke-alb" {
   subnets            = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
 }
 
-# set up target group
+# set up target groups
 resource "aws_lb_target_group" "tg-postgrest" {
   name        = "tg-postgrest"
   port        = "3000"
+  protocol    = "HTTP"
+  vpc_id      = aws_default_vpc.default_vpc.id
+  target_type = "ip"
+}
+
+resource "aws_lb_target_group" "tg-eventserver" {
+  name        = "tg-eventserver"
+  port        = "8080"
   protocol    = "HTTP"
   vpc_id      = aws_default_vpc.default_vpc.id
   target_type = "ip"
@@ -83,6 +91,23 @@ resource "aws_lb_listener" "snoke-alb-listener" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.tg-postgrest.arn
+  }
+}
+
+# set up routes
+resource "aws_lb_listener_rule" "realtime" {
+  listener_arn = aws_lb_listener.snoke-alb-listener.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg-eventserver.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/realtime"]
+    }
   }
 }
 
@@ -126,7 +151,7 @@ resource "aws_ecs_task_definition" "postgres" {
         interval = 5
         timeout  = 5
         retries  = 5
-      },
+      }
     }
   ])
 }
@@ -170,10 +195,10 @@ resource "aws_ecs_task_definition" "postgrest" {
 
   container_definitions = jsonencode([
     {
-      name   = "postgrest-container"
-      image  = "snowclone/postg-rest:latest"
-      memory = 512
-      cpu    = 256
+      name  = "postgrest-container"
+      image = "snowclone/postg-rest:latest"
+      #   memory = 512
+      #   cpu    = 256
       portMappings = [
         {
           name          = "postgrest-port-3000"
@@ -196,6 +221,33 @@ resource "aws_ecs_task_definition" "postgrest" {
         startPeriod = 10
         retries     = 5
       }
+    },
+    {
+      name  = "eventserver-container"
+      image = "snowclone/eventserver:3.0.1"
+      # memory = 512
+      # cpu    = 256
+      portMappings = [
+        {
+          name          = "eventserver-port-8080"
+          containerPort = 8080
+        }
+      ]
+      essential = true
+      environment = [
+        { name = "PG_USER", value = "postgres" },
+        { name = "PG_PASSWORD", value = "postgres" },
+        { name = "PG_HOST", value = "pg-service" },
+        { name = "PG_PORT", value = "5432" },
+        { name = "PG_DATABASE", value = "postgres" }
+      ]
+      healthcheck = {
+        command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], # Example health check command
+        interval    = 5,
+        timeout     = 5,
+        startPeriod = 10,
+        retries     = 5
+      }
     }
   ])
 }
@@ -212,6 +264,12 @@ resource "aws_ecs_service" "postgrest-service" {
     target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
     container_name   = "postgrest-container"
     container_port   = 3000 # Specify the container port.
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg-eventserver.arn # Reference the target group
+    container_name   = "eventserver-container"
+    container_port   = 8080 # Specify the container port
   }
 
   service_connect_configuration {
