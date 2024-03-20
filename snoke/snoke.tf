@@ -224,7 +224,7 @@ resource "aws_ecs_task_definition" "postgrest" {
     },
     {
       name  = "eventserver-container"
-      image = "sashvosh/event-server:2.0.0"
+      image = "snowclone/eventserver:2.0.0"
       # memory = 512
       # cpu    = 256
       portMappings = [
