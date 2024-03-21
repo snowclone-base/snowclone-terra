@@ -1,5 +1,5 @@
 provider "aws" {
-  region     = "us-west-2"
+  region = "us-west-2"
 }
 
 # create cloud map namespace
@@ -27,6 +27,12 @@ resource "aws_ecs_cluster_capacity_providers" "snoke" {
     weight            = 50
     capacity_provider = "FARGATE"
   }
+}
+
+# Create a CloudWatch Logs group
+resource "aws_cloudwatch_log_group" "ecs_logs" {
+  name              = "/ecs/snoke"
+  retention_in_days = 30 # Adjust retention policy as needed
 }
 
 # provision security groups
@@ -111,6 +117,11 @@ resource "aws_lb_listener_rule" "realtime" {
   }
 }
 
+# Execution role for Task Definition 
+data "aws_iam_role" "ecs_task_execution_role" {
+  name = "ecsTaskExecutionRole"
+}
+
 # postgres task definition
 resource "aws_ecs_task_definition" "postgres" {
   family                   = "postgres"
@@ -118,6 +129,7 @@ resource "aws_ecs_task_definition" "postgres" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
+  execution_role_arn       = data.aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([
     {
@@ -152,6 +164,14 @@ resource "aws_ecs_task_definition" "postgres" {
         timeout  = 5
         retries  = 5
       }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+          awslogs-region        = "us-west-2"
+          awslogs-stream-prefix = "pg_service"
+        }
+      }
     }
   ])
 }
@@ -185,13 +205,14 @@ resource "aws_ecs_service" "pg-service" {
   }
 }
 
-# postgrest task definition
-resource "aws_ecs_task_definition" "postgrest" {
-  family                   = "postgrest"
+# api task definition
+resource "aws_ecs_task_definition" "api" {
+  family                   = "api"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
+  execution_role_arn       = data.aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([
     {
@@ -221,6 +242,14 @@ resource "aws_ecs_task_definition" "postgrest" {
         startPeriod = 10
         retries     = 5
       }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+          awslogs-region        = "us-west-2"
+          awslogs-stream-prefix = "postgrest"
+        }
+      }
     },
     {
       name  = "eventserver-container"
@@ -248,15 +277,23 @@ resource "aws_ecs_task_definition" "postgrest" {
         startPeriod = 10,
         retries     = 5
       }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+          awslogs-region        = "us-west-2"
+          awslogs-stream-prefix = "event-server"
+        }
+      }
     }
   ])
 }
 
-# provision postgrest service
-resource "aws_ecs_service" "postgrest-service" {
-  name            = "postgrest-service"
+# provision api service
+resource "aws_ecs_service" "api-service" {
+  name            = "api-service"
   cluster         = aws_ecs_cluster.snoke.id
-  task_definition = aws_ecs_task_definition.postgrest.arn
+  task_definition = aws_ecs_task_definition.api.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
@@ -301,3 +338,4 @@ resource "aws_default_subnet" "default_subnet_b" {
 output "app_url" {
   value = aws_lb.snoke-alb.dns_name
 }
+
