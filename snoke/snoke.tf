@@ -88,6 +88,26 @@ resource "aws_lb_target_group" "tg-eventserver" {
   target_type = "ip"
 }
 
+resource "aws_lb_target_group" "tg-schema-server" {
+  name        = "tg-schema-server"
+  port        = "5175"
+  protocol    = "HTTP"
+  vpc_id      = aws_default_vpc.default_vpc.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    protocol            = "HTTP"
+    path                = "/V1/api"
+    port                = "traffic-port"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 5
+    unhealthy_threshold = 2
+  }
+
+}
+
 # set up ALB listener
 resource "aws_lb_listener" "snoke-alb-listener" {
   load_balancer_arn = aws_lb.snoke-alb.arn
@@ -113,6 +133,22 @@ resource "aws_lb_listener_rule" "realtime" {
   condition {
     path_pattern {
       values = ["/realtime"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "schema-upload" {
+  listener_arn = aws_lb_listener.snoke-alb-listener.arn
+  priority     = 101
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg-schema-server.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/schema"]
     }
   }
 }
@@ -285,6 +321,38 @@ resource "aws_ecs_task_definition" "api" {
           awslogs-stream-prefix = "event-server"
         }
       }
+    },
+    {
+      name  = "schema-server-container"
+      image = "snowclone/schema-server:2.0.0"
+      # memory = 512
+      # cpu    = 256
+      portMappings = [
+        {
+          name          = "schema-server-port-8080"
+          containerPort = 5175
+        }
+      ]
+      essential = true
+      environment = [
+        { name = "PORT", value = "5175" },
+        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@pg-service:5432/postgres" },
+      ]
+      healthcheck = {
+        command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], # Example health check command
+        interval    = 5,
+        timeout     = 5,
+        startPeriod = 10,
+        retries     = 5
+      }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+          awslogs-region        = "us-west-2"
+          awslogs-stream-prefix = "schema-server"
+        }
+      }
     }
   ])
 }
@@ -307,6 +375,12 @@ resource "aws_ecs_service" "api-service" {
     target_group_arn = aws_lb_target_group.tg-eventserver.arn # Reference the target group
     container_name   = "eventserver-container"
     container_port   = 8080 # Specify the container port
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg-schema-server.arn # Reference the target group
+    container_name   = "schema-server-container"
+    container_port   = 5175 # Specify the container port
   }
 
   service_connect_configuration {
