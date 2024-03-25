@@ -345,19 +345,19 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "schema-server-container"
-      image = "snowclone/schema-server:2.0.0"
+      image = "snowclone/schema-server:2.0.2"
       # memory = 512
       # cpu    = 256
       portMappings = [
         {
-          name          = "schema-server-port-8080"
+          name          = "schema-server-port-5175"
           containerPort = 5175
         }
       ]
       essential = true
       environment = [
-        { name = "PORT", value = "5175" },
         { name = "DATABASE_URL", value = "postgresql://postgres:postgres@pg-service:5432/postgres" },
+        { name = "API_TOKEN", value = "helo" },
       ]
       healthcheck = {
         command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], # Example health check command
