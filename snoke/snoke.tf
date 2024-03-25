@@ -20,7 +20,7 @@ resource "aws_iam_role" "ecsTaskExecutionRole" {
   })
 }
 
-# attach ECS task permissions to current role
+# attach ECS task permissions to role
 resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
   role       = aws_iam_role.ecsTaskExecutionRole.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
