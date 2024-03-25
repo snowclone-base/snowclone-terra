@@ -2,6 +2,30 @@ provider "aws" {
   region = "us-west-2"
 }
 
+# create ECS task execution role
+resource "aws_iam_role" "ecsTaskExecutionRole" {
+  name = "ecsTaskExecutionRole"
+  assume_role_policy = jsonencode({
+    Version = "2008-10-17",
+    Statement = [
+      {
+        Sid    = "",
+        Effect = "Allow",
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        },
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+# attach ECS task permissions to role
+resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
+  role       = aws_iam_role.ecsTaskExecutionRole.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
 # create cloud map namespace
 resource "aws_service_discovery_http_namespace" "snoke" {
   name        = "snoke"
@@ -153,10 +177,7 @@ resource "aws_lb_listener_rule" "schema-upload" {
   }
 }
 
-# Execution role for Task Definition 
-data "aws_iam_role" "ecs_task_execution_role" {
-  name = "ecsTaskExecutionRole"
-}
+
 
 # postgres task definition
 resource "aws_ecs_task_definition" "postgres" {
@@ -165,7 +186,7 @@ resource "aws_ecs_task_definition" "postgres" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = data.aws_iam_role.ecs_task_execution_role.arn
+  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
 
   container_definitions = jsonencode([
     {
@@ -248,7 +269,7 @@ resource "aws_ecs_task_definition" "api" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = data.aws_iam_role.ecs_task_execution_role.arn
+  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
 
   container_definitions = jsonencode([
     {
