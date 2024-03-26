@@ -183,18 +183,6 @@ resource "aws_lb_target_group" "tg-schema-server" {
 
 }
 
-# # set up ALB listener
-# resource "aws_lb_listener" "snoke-alb-listener" {
-#   load_balancer_arn = aws_lb.snoke-alb.arn
-#   port              = "80"
-#   protocol          = "HTTP"
-
-#   default_action {
-#     type             = "forward"
-#     target_group_arn = aws_lb_target_group.tg-postgrest.arn
-#   }
-# }
-
 # Set up ALB listener for HTTP traffic
 resource "aws_lb_listener" "alb-listener-http" {
   load_balancer_arn = aws_lb.alb.arn
