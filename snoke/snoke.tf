@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-2"
+  region     = var.region
 }
 
 # create ECS task execution role
@@ -20,29 +20,29 @@ resource "aws_iam_role" "ecsTaskExecutionRole" {
   })
 }
 
-# attach ECS task permissions to role
+# attach ECS task permissions to current role
 resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
   role       = aws_iam_role.ecsTaskExecutionRole.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 # create cloud map namespace
-resource "aws_service_discovery_http_namespace" "snoke" {
-  name        = "snoke"
-  description = "snoke"
+resource "aws_service_discovery_http_namespace" "project_name" {
+  name        = var.project_name
+  description = var.project_name
 }
 
 # provision cluster & capacity providers
-resource "aws_ecs_cluster" "snoke" {
-  name = "snoke"
+resource "aws_ecs_cluster" "project_name" {
+  name = var.project_name
 
   service_connect_defaults {
-    namespace = aws_service_discovery_http_namespace.snoke.arn
+    namespace = aws_service_discovery_http_namespace.project_name.arn
   }
 }
 
-resource "aws_ecs_cluster_capacity_providers" "snoke" {
-  cluster_name = aws_ecs_cluster.snoke.name
+resource "aws_ecs_cluster_capacity_providers" "project_name" {
+  cluster_name = aws_ecs_cluster.project_name.name
 
   capacity_providers = ["FARGATE"]
 
@@ -55,7 +55,7 @@ resource "aws_ecs_cluster_capacity_providers" "snoke" {
 
 # Create a CloudWatch Logs group
 resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name              = "/ecs/snoke"
+  name              = "/ecs/${var.project_name}"
   retention_in_days = 30 # Adjust retention policy as needed
 }
 
@@ -77,7 +77,6 @@ resource "aws_vpc_security_group_ingress_rule" "allow_all" {
   ip_protocol = -1 #all protocols
 }
 
-
 # Egress rule
 resource "aws_vpc_security_group_egress_rule" "allow_all" {
   security_group_id = aws_security_group.allow_all.id
@@ -86,13 +85,65 @@ resource "aws_vpc_security_group_egress_rule" "allow_all" {
   ip_protocol = -1 #all protocols
 }
 
+# Create an SSL/TLS certificate
+resource "aws_acm_certificate" "cert" {
+  domain_name       = "*.${var.domain_name}"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+data "aws_route53_zone" "zone" {
+  name         = var.domain_name
+  private_zone = false
+}
+
+resource "aws_route53_record" "record" {
+  for_each = {
+    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.zone.zone_id
+}
+
+resource "aws_acm_certificate_validation" "cert" {
+  certificate_arn         = aws_acm_certificate.cert.arn
+  validation_record_fqdns = [for record in aws_route53_record.record : record.fqdn]
+}
+
 # provision ALB
-resource "aws_lb" "snoke-alb" {
-  name               = "snoke-alb"
+resource "aws_lb" "alb" {
+  name               =  "${var.project_name}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.allow_all.id] # need to make SGs
   subnets            = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
+}
+
+data "aws_lb" "alb" {
+  name = aws_lb.alb.name
+
+  depends_on = [aws_lb.alb]
+}
+
+# Create Route 53 record
+resource "aws_route53_record" "alb_record" {
+  zone_id = data.aws_route53_zone.zone.zone_id
+  name    = "${var.project_name}.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 300
+  records = [aws_lb.alb.dns_name]
 }
 
 # set up target groups
@@ -132,11 +183,42 @@ resource "aws_lb_target_group" "tg-schema-server" {
 
 }
 
-# set up ALB listener
-resource "aws_lb_listener" "snoke-alb-listener" {
-  load_balancer_arn = aws_lb.snoke-alb.arn
+# # set up ALB listener
+# resource "aws_lb_listener" "snoke-alb-listener" {
+#   load_balancer_arn = aws_lb.snoke-alb.arn
+#   port              = "80"
+#   protocol          = "HTTP"
+
+#   default_action {
+#     type             = "forward"
+#     target_group_arn = aws_lb_target_group.tg-postgrest.arn
+#   }
+# }
+
+# Set up ALB listener for HTTP traffic
+resource "aws_lb_listener" "alb-listener-http" {
+  load_balancer_arn = aws_lb.alb.arn
   port              = "80"
   protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# Step 2: Configure the ALB listener with HTTPS
+resource "aws_lb_listener" "alb-listener-https" {
+  load_balancer_arn = aws_lb.alb.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate.cert.arn
 
   default_action {
     type             = "forward"
@@ -146,7 +228,7 @@ resource "aws_lb_listener" "snoke-alb-listener" {
 
 # set up routes
 resource "aws_lb_listener_rule" "realtime" {
-  listener_arn = aws_lb_listener.snoke-alb-listener.arn
+  listener_arn = aws_lb_listener.alb-listener-https.arn
   priority     = 100
 
   action {
@@ -162,7 +244,7 @@ resource "aws_lb_listener_rule" "realtime" {
 }
 
 resource "aws_lb_listener_rule" "schema-upload" {
-  listener_arn = aws_lb_listener.snoke-alb-listener.arn
+  listener_arn = aws_lb_listener.alb-listener-https.arn
   priority     = 101
 
   action {
@@ -176,8 +258,6 @@ resource "aws_lb_listener_rule" "schema-upload" {
     }
   }
 }
-
-
 
 # postgres task definition
 resource "aws_ecs_task_definition" "postgres" {
@@ -236,14 +316,14 @@ resource "aws_ecs_task_definition" "postgres" {
 # provision postgres service
 resource "aws_ecs_service" "pg-service" {
   name            = "pg-service"
-  cluster         = aws_ecs_cluster.snoke.id
+  cluster         = aws_ecs_cluster.project_name.id
   task_definition = aws_ecs_task_definition.postgres.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   service_connect_configuration {
     enabled   = true
-    namespace = "snoke"
+    namespace = var.project_name
 
     service {
       client_alias {
@@ -275,8 +355,6 @@ resource "aws_ecs_task_definition" "api" {
     {
       name  = "postgrest-container"
       image = "snowclone/postg-rest:latest"
-      #   memory = 512
-      #   cpu    = 256
       portMappings = [
         {
           name          = "postgrest-port-3000"
@@ -311,8 +389,6 @@ resource "aws_ecs_task_definition" "api" {
     {
       name  = "eventserver-container"
       image = "snowclone/eventserver:3.0.1"
-      # memory = 512
-      # cpu    = 256
       portMappings = [
         {
           name          = "eventserver-port-8080"
@@ -345,19 +421,17 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "schema-server-container"
-      image = "snowclone/schema-server:2.0.2"
-      # memory = 512
-      # cpu    = 256
+      image = "snowclone/schema-server:2.0.0"
       portMappings = [
         {
-          name          = "schema-server-port-5175"
+          name          = "schema-server-port-8080"
           containerPort = 5175
         }
       ]
       essential = true
       environment = [
+        { name = "PORT", value = "5175" },
         { name = "DATABASE_URL", value = "postgresql://postgres:postgres@pg-service:5432/postgres" },
-        { name = "API_TOKEN", value = "helo" },
       ]
       healthcheck = {
         command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], # Example health check command
@@ -381,7 +455,7 @@ resource "aws_ecs_task_definition" "api" {
 # provision api service
 resource "aws_ecs_service" "api-service" {
   name            = "api-service"
-  cluster         = aws_ecs_cluster.snoke.id
+  cluster         = aws_ecs_cluster.project_name.id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = 1
   launch_type     = "FARGATE"
@@ -406,7 +480,7 @@ resource "aws_ecs_service" "api-service" {
 
   service_connect_configuration {
     enabled   = true
-    namespace = "snoke"
+    namespace = var.project_name
   }
 
   network_configuration {
@@ -421,16 +495,14 @@ resource "aws_default_vpc" "default_vpc" {}
 
 # Provide references to your default subnets
 resource "aws_default_subnet" "default_subnet_a" {
-  # Use your own region here but reference to subnet 1a
-  availability_zone = "us-west-2a"
+  availability_zone = "${var.region}a"
 }
 
 resource "aws_default_subnet" "default_subnet_b" {
-  # Use your own region here but reference to subnet 1b
-  availability_zone = "us-west-2b"
+  availability_zone = "${var.region}b"
 }
 
 output "app_url" {
-  value = aws_lb.snoke-alb.dns_name
+  value = "${var.project_name}.${var.domain_name}"
 }
 
