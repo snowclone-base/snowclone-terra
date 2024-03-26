@@ -310,7 +310,7 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "eventserver-container"
-      image = "snowclone/eventserver:3.0.1"
+      image = "snowclone/eventserver:3.0.2"
       # memory = 512
       # cpu    = 256
       portMappings = [
