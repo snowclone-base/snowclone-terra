@@ -400,7 +400,7 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "schema-server-container"
-      image = "snowclone/schema-server:2.0.2"
+      image = "snowclone/schema-server:RDStest" #"snowclone/schema-server:2.0.2"
       # memory = 512
       # cpu    = 256
       portMappings = [
