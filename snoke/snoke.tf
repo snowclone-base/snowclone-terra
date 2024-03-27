@@ -26,19 +26,50 @@ resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# create cloud map namespace
-resource "aws_service_discovery_http_namespace" "snoke" {
-  name        = "snoke"
-  description = "snoke"
+# create RDS
+resource "aws_db_instance" "snoke-db" {
+  allocated_storage      = 10
+  apply_immediately      = true
+  db_name                = "postgres"
+  engine                 = "postgres"
+  engine_version         = "16.2"
+  instance_class         = "db.t3.micro"
+  parameter_group_name   = aws_db_parameter_group.education.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  skip_final_snapshot    = true
+  username               = "postgres"
+  password               = "postgres"
+  publicly_accessible    = true
 }
+
+# create parameter group for db
+resource "aws_db_parameter_group" "education" {
+  name   = "education"
+  family = "postgres16"
+
+  parameter {
+    name  = "log_connections"
+    value = "1"
+  }
+}
+# create function call to invoke config
+resource "null_resource" "setup_db" {
+  depends_on = [aws_db_instance.snoke-db] #wait for the db to be ready
+  provisioner "local-exec" {
+
+    command = "psql -h ${aws_db_instance.snoke-db.address} -p 5432 -U \"postgres\" -d postgres -f \"/home/T/launchSchool/Capstone/project/snowclone/sql/apiSchema.sql\""
+
+    environment = {
+      PGPASSWORD = "postgres"
+    }
+  }
+}
+
 
 # provision cluster & capacity providers
 resource "aws_ecs_cluster" "snoke" {
   name = "snoke"
 
-  service_connect_defaults {
-    namespace = aws_service_discovery_http_namespace.snoke.arn
-  }
 }
 
 resource "aws_ecs_cluster_capacity_providers" "snoke" {
@@ -66,6 +97,29 @@ resource "aws_security_group" "allow_all" {
   vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
     Name = "openBothWays"
+  }
+}
+
+resource "aws_security_group" "rds" {
+  name   = "education_rds"
+  vpc_id = aws_default_vpc.default_vpc.id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "education_rds"
   }
 }
 
@@ -179,88 +233,88 @@ resource "aws_lb_listener_rule" "schema-upload" {
 
 
 
-# postgres task definition
-resource "aws_ecs_task_definition" "postgres" {
-  family                   = "postgres"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
+# # postgres task definition
+# resource "aws_ecs_task_definition" "postgres" {
+#   family                   = "postgres"
+#   requires_compatibilities = ["FARGATE"]
+#   network_mode             = "awsvpc"
+#   cpu                      = 256
+#   memory                   = 512
+#   execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
 
-  container_definitions = jsonencode([
-    {
-      name   = "postgres-container"
-      image  = "snowclone/postgres:amd64-test"
-      memory = 512
-      cpu    = 256
-      portMappings = [
-        {
-          name          = "pg-port-5432"
-          containerPort = 5432
-        }
-      ]
-      essential = true
-      environment = [
-        {
-          name  = "POSTGRES_DB"
-          value = "postgres"
-        },
-        {
-          name  = "POSTGRES_PASSWORD"
-          value = "postgres"
-        },
-        {
-          name  = "POSTGRES_USER"
-          value = "postgres"
-        },
-      ]
-      healthcheck = {
-        command  = ["CMD-SHELL", "pg_isready -U postgres"]
-        interval = 5
-        timeout  = 5
-        retries  = 5
-      }
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "us-west-2"
-          awslogs-stream-prefix = "pg_service"
-        }
-      }
-    }
-  ])
-}
+#   container_definitions = jsonencode([
+#     {
+#       name   = "postgres-container"
+#       image  = "snowclone/postgres:amd64-test"
+#       memory = 512
+#       cpu    = 256
+#       portMappings = [
+#         {
+#           name          = "pg-port-5432"
+#           containerPort = 5432
+#         }
+#       ]
+#       essential = true
+#       environment = [
+#         {
+#           name  = "POSTGRES_DB"
+#           value = "postgres"
+#         },
+#         {
+#           name  = "POSTGRES_PASSWORD"
+#           value = "postgres"
+#         },
+#         {
+#           name  = "POSTGRES_USER"
+#           value = "postgres"
+#         },
+#       ]
+#       healthcheck = {
+#         command  = ["CMD-SHELL", "pg_isready -U postgres"]
+#         interval = 5
+#         timeout  = 5
+#         retries  = 5
+#       }
+#       logConfiguration = {
+#         logDriver = "awslogs"
+#         options = {
+#           awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+#           awslogs-region        = "us-west-2"
+#           awslogs-stream-prefix = "pg_service"
+#         }
+#       }
+#     }
+#   ])
+# }
 
-# provision postgres service
-resource "aws_ecs_service" "pg-service" {
-  name            = "pg-service"
-  cluster         = aws_ecs_cluster.snoke.id
-  task_definition = aws_ecs_task_definition.postgres.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+# # provision postgres service
+# resource "aws_ecs_service" "pg-service" {
+#   name            = "pg-service"
+#   cluster         = aws_ecs_cluster.snoke.id
+#   task_definition = aws_ecs_task_definition.postgres.arn
+#   desired_count   = 1
+#   launch_type     = "FARGATE"
 
-  service_connect_configuration {
-    enabled   = true
-    namespace = "snoke"
+#   service_connect_configuration {
+#     enabled   = true
+#     namespace = "snoke"
 
-    service {
-      client_alias {
-        port     = 5432
-        dns_name = "pg-service"
-      }
-      discovery_name = "pg-service"
-      port_name      = "pg-port-5432"
-    }
-  }
+#     service {
+#       client_alias {
+#         port     = 5432
+#         dns_name = "pg-service"
+#       }
+#       discovery_name = "pg-service"
+#       port_name      = "pg-port-5432"
+#     }
+#   }
 
-  network_configuration {
-    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
-    assign_public_ip = true                              # Provide the containers with public IPs
-    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
-  }
-}
+#   network_configuration {
+#     subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
+#     assign_public_ip = true                              # Provide the containers with public IPs
+#     security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+#   }
+# }
 
 # api task definition
 resource "aws_ecs_task_definition" "api" {
@@ -285,9 +339,9 @@ resource "aws_ecs_task_definition" "api" {
       ]
       essential = true
       environment = [
-        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@pg-service:5432/postgres" },
+        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.snoke-db.endpoint}/postgres" },
         { name = "PGRST_DB_SCHEMA", value = "api" },
-        { name = "PGRST_DB_ANON_ROLE", value = "web_anon" },
+        { name = "PGRST_DB_ANON_ROLE", value = "anon" },
         { name = "PGRST_OPENAPI_SERVER_PROXY_URI", value = "http://localhost:3000" },
         { name = "PGRST_ADMIN_SERVER_PORT", value = "3001" },
         { name = "PGRST_JWT_SECRET", value = "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6" } #added so we could test adding to db
@@ -310,7 +364,7 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "eventserver-container"
-      image = "snowclone/eventserver:3.0.1"
+      image = "snowclone/eventserver:RDStest" # "snowclone/eventserver:3.0.1"
       # memory = 512
       # cpu    = 256
       portMappings = [
@@ -321,11 +375,12 @@ resource "aws_ecs_task_definition" "api" {
       ]
       essential = true
       environment = [
-        { name = "PG_USER", value = "postgres" },
-        { name = "PG_PASSWORD", value = "postgres" },
-        { name = "PG_HOST", value = "pg-service" },
-        { name = "PG_PORT", value = "5432" },
-        { name = "PG_DATABASE", value = "postgres" }
+        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}/postgres" }
+        # { name = "PG_USER", value = "postgres" },
+        # { name = "PG_PASSWORD", value = "postgres" },
+        # { name = "PG_HOST", value = "${aws_db_instance.snoke-db.address}" },
+        # { name = "PG_PORT", value = "5432" },
+        # { name = "PG_DATABASE", value = "postgres" }
       ]
       healthcheck = {
         command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], # Example health check command
@@ -356,7 +411,7 @@ resource "aws_ecs_task_definition" "api" {
       ]
       essential = true
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@pg-service:5432/postgres" },
+        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}//postgres" },
         { name = "API_TOKEN", value = "helo" },
       ]
       healthcheck = {
@@ -385,6 +440,7 @@ resource "aws_ecs_service" "api-service" {
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+  depends_on      = [aws_db_instance.snoke-db] #wait for the db to be ready
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
@@ -402,11 +458,6 @@ resource "aws_ecs_service" "api-service" {
     target_group_arn = aws_lb_target_group.tg-schema-server.arn # Reference the target group
     container_name   = "schema-server-container"
     container_port   = 5175 # Specify the container port
-  }
-
-  service_connect_configuration {
-    enabled   = true
-    namespace = "snoke"
   }
 
   network_configuration {
@@ -434,3 +485,6 @@ output "app_url" {
   value = aws_lb.snoke-alb.dns_name
 }
 
+output "db_url" {
+  value = aws_db_instance.snoke-db.endpoint
+}
