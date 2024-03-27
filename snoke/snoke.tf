@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-west-2"
+  region     = "us-west-2"
 }
 
 # create ECS task execution role
@@ -126,7 +126,6 @@ resource "aws_vpc_security_group_ingress_rule" "allow_all" {
   ip_protocol = -1 #all protocols
 }
 
-
 # Egress rule
 resource "aws_vpc_security_group_egress_rule" "allow_all" {
   security_group_id = aws_security_group.allow_all.id
@@ -151,6 +150,17 @@ resource "aws_lb_target_group" "tg-postgrest" {
   protocol    = "HTTP"
   vpc_id      = aws_default_vpc.default_vpc.id
   target_type = "ip"
+
+  health_check {
+    enabled             = true
+    protocol            = "HTTP"
+    path                = "/ready"
+    port                = "3001"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 5
+    unhealthy_threshold = 2
+  }
 }
 
 resource "aws_lb_target_group" "tg-eventserver" {
@@ -178,7 +188,6 @@ resource "aws_lb_target_group" "tg-schema-server" {
     healthy_threshold   = 5
     unhealthy_threshold = 2
   }
-
 }
 
 # set up ALB listener
@@ -226,7 +235,6 @@ resource "aws_lb_listener_rule" "schema-upload" {
   }
 }
 
-
 # api task definition
 resource "aws_ecs_task_definition" "api" {
   family                   = "api"
@@ -238,42 +246,6 @@ resource "aws_ecs_task_definition" "api" {
 
   container_definitions = jsonencode([
     {
-      name  = "postgrest-container"
-      image = "snowclone/postg-rest:latest"
-      #   memory = 512
-      #   cpu    = 256
-      portMappings = [
-        {
-          name          = "postgrest-port-3000"
-          containerPort = 3000
-        }
-      ]
-      essential = false
-      environment = [
-        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.snoke-db.endpoint}/postgres" },
-        { name = "PGRST_DB_SCHEMA", value = "api" },
-        { name = "PGRST_DB_ANON_ROLE", value = "anon" },
-        { name = "PGRST_OPENAPI_SERVER_PROXY_URI", value = "http://localhost:3000" },
-        { name = "PGRST_ADMIN_SERVER_PORT", value = "3001" },
-        { name = "PGRST_JWT_SECRET", value = "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6" } #added so we could test adding to db
-      ],
-      healthcheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:3001/ready || exit 1"]
-        interval    = 5
-        timeout     = 5
-        startPeriod = 10
-        retries     = 5
-      }
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "us-west-2"
-          awslogs-stream-prefix = "postgrest"
-        }
-      }
-    },
-    {
       name  = "eventserver-container"
       image = "snowclone/eventserver:3.0.1"
       portMappings = [
@@ -282,7 +254,7 @@ resource "aws_ecs_task_definition" "api" {
           containerPort = 8080
         }
       ]
-      essential = false
+      essential = true
       environment = [
         { name = "PG_USER", value = "postgres" },
         { name = "PG_PASSWORD", value = "postgres" },
@@ -340,6 +312,55 @@ resource "aws_ecs_task_definition" "api" {
   ])
 }
 
+# postgrest task definition
+resource "aws_ecs_task_definition" "postgrest" {
+  family                   = "postgrest"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "postgrest-container"
+      image = "snowclone/postg-rest:latest"
+      #   memory = 512
+      #   cpu    = 256
+      portMappings = [
+        {
+          name          = "postgrest-port-3000"
+          containerPort = 3000
+        }
+      ]
+      essential = true
+      environment = [
+        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.snoke-db.endpoint}/postgres" },
+        { name = "PGRST_DB_SCHEMA", value = "api" },
+        { name = "PGRST_DB_ANON_ROLE", value = "anon" },
+        { name = "PGRST_OPENAPI_SERVER_PROXY_URI", value = "http://localhost:3000" },
+        { name = "PGRST_ADMIN_SERVER_PORT", value = "3001" },
+        { name = "PGRST_JWT_SECRET", value = "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6" } #added so we could test adding to db
+      ],
+      healthcheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:3001/ready || exit 1"]
+        interval    = 5
+        timeout     = 5
+        startPeriod = 10
+        retries     = 5
+      }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
+          awslogs-region        = "us-west-2"
+          awslogs-stream-prefix = "postgrest"
+        }
+      }
+    }
+  ])
+}
+
 # provision api service
 resource "aws_ecs_service" "api-service" {
   name            = "api-service"
@@ -348,12 +369,6 @@ resource "aws_ecs_service" "api-service" {
   desired_count   = 1
   launch_type     = "FARGATE"
   depends_on      = [aws_db_instance.snoke-db] #wait for the db to be ready
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
-    container_name   = "postgrest-container"
-    container_port   = 3000 # Specify the container port.
-  }
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg-eventserver.arn # Reference the target group
@@ -365,6 +380,28 @@ resource "aws_ecs_service" "api-service" {
     target_group_arn = aws_lb_target_group.tg-schema-server.arn # Reference the target group
     container_name   = "schema-server-container"
     container_port   = 5175 # Specify the container port
+  }
+
+  network_configuration {
+    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
+    assign_public_ip = true                              # Provide the containers with public IPs
+    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+  }
+}
+
+# provision postgrest service
+resource "aws_ecs_service" "postgrest-service" {
+  name            = "postgrest-service"
+  cluster         = aws_ecs_cluster.snoke.id
+  task_definition = aws_ecs_task_definition.postgrest.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+  depends_on      = [aws_db_instance.snoke-db] #wait for the db to be ready
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
+    container_name   = "postgrest-container"
+    container_port   = 3000 # Specify the container port.
   }
 
   network_configuration {
