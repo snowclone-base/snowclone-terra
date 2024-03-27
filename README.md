@@ -19,3 +19,8 @@ variable "domain_name" {
 }
 
 You must have a Route53 Domain registered in your AWS Account.
+
+In order for the Postgrest service to run, you need to send a curl request with the apiSchema.sql file as follows
+`curl -H "Authorization: Bearer <API_TOKEN>" -F 'file=@apiSchema.sql' https://<PROJECT_NAME>.<DOMAIN_NAME>/schema` 
+
+(Contents of apiSchema.sql can be found in main repo.)

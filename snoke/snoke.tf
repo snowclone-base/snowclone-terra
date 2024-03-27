@@ -31,7 +31,7 @@ resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
 ###################################################################################
 
 # create RDS
-resource "aws_db_instance" "snoke-db" {
+resource "aws_db_instance" "rds-db" {
   allocated_storage      = 10
   apply_immediately      = true
   db_name                = "postgres"
@@ -48,7 +48,7 @@ resource "aws_db_instance" "snoke-db" {
 
 # create parameter group for db
 resource "aws_db_parameter_group" "rds" {
-  name   = "snoke"
+  name   = var.project_name
   family = "postgres14"
 
   parameter {
@@ -58,7 +58,7 @@ resource "aws_db_parameter_group" "rds" {
 }
 
 resource "aws_security_group" "rds" {
-  name   = "snoke_rds"
+  name   = "${var.project_name}_rds"
   vpc_id = aws_default_vpc.default_vpc.id
 
   ingress {
@@ -76,7 +76,7 @@ resource "aws_security_group" "rds" {
   }
 
   tags = {
-    Name = "snoke_rds"
+    Name = "${var.project_name}_rds"
   }
 }
 
@@ -330,10 +330,10 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "PG_USER", value = "postgres" },
         { name = "PG_PASSWORD", value = "postgres" },
-        { name = "PG_HOST", value = "${aws_db_instance.snoke-db.address}" },
+        { name = "PG_HOST", value = "${aws_db_instance.rds-db.address}" },
         { name = "PG_PORT", value = "5432" },
         { name = "PG_DATABASE", value = "postgres" }
-        # { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}/postgres" }
+        # { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.rds-db.endpoint}/postgres" }
       ]
       healthcheck = {
         command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], # Example health check command
@@ -346,7 +346,7 @@ resource "aws_ecs_task_definition" "api" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "us-west-2"
+          awslogs-region        = var.region
           awslogs-stream-prefix = "event-server"
         }
       }
@@ -363,7 +363,7 @@ resource "aws_ecs_task_definition" "api" {
       ]
       essential = true
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}/postgres" },
+        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.rds-db.endpoint}/postgres" },
         { name = "API_TOKEN", value = "helo" },
       ]
       healthcheck = {
@@ -377,7 +377,7 @@ resource "aws_ecs_task_definition" "api" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "us-west-2"
+          awslogs-region        = var.region
           awslogs-stream-prefix = "schema-server"
         }
       }
@@ -408,7 +408,7 @@ resource "aws_ecs_task_definition" "postgrest" {
       ]
       essential = true
       environment = [
-        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.snoke-db.endpoint}/postgres" },
+        { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.rds-db.endpoint}/postgres" },
         { name = "PGRST_DB_SCHEMA", value = "api" },
         { name = "PGRST_DB_ANON_ROLE", value = "anon" },
         { name = "PGRST_OPENAPI_SERVER_PROXY_URI", value = "http://localhost:3000" },
@@ -426,7 +426,7 @@ resource "aws_ecs_task_definition" "postgrest" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "us-west-2"
+          awslogs-region        = var.region
           awslogs-stream-prefix = "postgrest"
         }
       }
@@ -441,7 +441,7 @@ resource "aws_ecs_service" "api-service" {
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = 1
   launch_type     = "FARGATE"
-  depends_on      = [aws_db_instance.snoke-db] #wait for the db to be ready
+  depends_on      = [aws_db_instance.rds-db] #wait for the db to be ready
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg-eventserver.arn # Reference the target group
@@ -465,11 +465,11 @@ resource "aws_ecs_service" "api-service" {
 # provision postgrest service
 resource "aws_ecs_service" "postgrest-service" {
   name            = "postgrest-service"
-  cluster         = aws_ecs_cluster.snoke.id
+  cluster         = aws_ecs_cluster.project_name.id
   task_definition = aws_ecs_task_definition.postgrest.arn
   desired_count   = 1
   launch_type     = "FARGATE"
-  depends_on      = [aws_db_instance.snoke-db] #wait for the db to be ready
+  depends_on      = [aws_db_instance.rds-db] #wait for the db to be ready
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
