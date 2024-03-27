@@ -36,41 +36,28 @@ resource "aws_db_instance" "snoke-db" {
   apply_immediately      = true
   db_name                = "postgres"
   engine                 = "postgres"
-  engine_version         = "16.2"
+  engine_version         = "14"
   instance_class         = "db.t3.micro"
-  parameter_group_name   = aws_db_parameter_group.education.name
+  parameter_group_name   = aws_db_parameter_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
   username               = "postgres"
   password               = "postgres"
-  publicly_accessible    = true
 }
 
 # create parameter group for db
-resource "aws_db_parameter_group" "education" {
-  name   = "education"
-  family = "postgres16"
+resource "aws_db_parameter_group" "rds" {
+  name   = "snoke"
+  family = "postgres14"
 
   parameter {
     name  = "log_connections"
     value = "1"
   }
 }
-# create function call to invoke config
-resource "null_resource" "setup_db" {
-  depends_on = [aws_db_instance.snoke-db] #wait for the db to be ready
-  provisioner "local-exec" {
-
-    command = "psql -h ${aws_db_instance.snoke-db.address} -p 5432 -U \"postgres\" -d postgres -f \"./apiSchema.sql\""
-
-    environment = {
-      PGPASSWORD = "postgres"
-    }
-  }
-}
 
 resource "aws_security_group" "rds" {
-  name   = "education_rds"
+  name   = "snoke_rds"
   vpc_id = aws_default_vpc.default_vpc.id
 
   ingress {
@@ -88,7 +75,7 @@ resource "aws_security_group" "rds" {
   }
 
   tags = {
-    Name = "education_rds"
+    Name = "snoke_rds"
   }
 }
 
@@ -261,7 +248,7 @@ resource "aws_ecs_task_definition" "api" {
           containerPort = 3000
         }
       ]
-      essential = true
+      essential = false
       environment = [
         { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.snoke-db.endpoint}/postgres" },
         { name = "PGRST_DB_SCHEMA", value = "api" },
@@ -288,18 +275,21 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "eventserver-container"
-      image = "snowclone/eventserver:RDStest" # "snowclone/eventserver:3.0.1"
-      # memory = 512
-      # cpu    = 256
+      image = "snowclone/eventserver:3.0.1"
       portMappings = [
         {
           name          = "eventserver-port-8080"
           containerPort = 8080
         }
       ]
-      essential = true
+      essential = false
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}/postgres" }
+        { name = "PG_USER", value = "postgres" },
+        { name = "PG_PASSWORD", value = "postgres" },
+        { name = "PG_HOST", value = "${aws_db_instance.snoke-db.address}" },
+        { name = "PG_PORT", value = "5432" },
+        { name = "PG_DATABASE", value = "postgres" }
+        # { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.snoke-db.endpoint}/postgres" }
       ]
       healthcheck = {
         command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], # Example health check command
@@ -319,9 +309,7 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "schema-server-container"
-      image = "snowclone/schema-server:RDStest" #"snowclone/schema-server:2.0.2"
-      # memory = 512
-      # cpu    = 256
+      image = "snowclone/schema-server:2.0.2"
       portMappings = [
         {
           name          = "schema-server-port-5175"
@@ -402,8 +390,4 @@ resource "aws_default_subnet" "default_subnet_b" {
 
 output "app_url" {
   value = aws_lb.snoke-alb.dns_name
-}
-
-output "db_url" {
-  value = aws_db_instance.snoke-db.endpoint
 }
