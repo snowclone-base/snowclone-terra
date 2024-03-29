@@ -16,7 +16,7 @@ jwt_secret        = <REGION> (must be 32 characters)
 ```
 
 - You must have a Route53 Domain registered in your AWS Account.
-- Run the apply with `terraform apply -var-file=example.tfvars`
+- Run the apply with `terraform apply -var-file=.tfvars`
 - Run the following curl request `curl -H "Authorization: Bearer <API_TOKEN>" -F 'file=@apiSchema.sql' https://<PROJECT_NAME>.<DOMAIN_NAME>/schema` to get the Postgrest service to run healthy
 
 (Contents of apiSchema.sql can be found in main repo.)

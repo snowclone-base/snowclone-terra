@@ -119,7 +119,7 @@ resource "aws_ecs_task_definition" "postgrest" {
       essential = true
       secrets = [
         {
-          name      = "JWT_SECRET"
+          name      = "PGRST_JWT_SECRET"
           valueFrom = data.aws_secretsmanager_secret_version.jwt_secret_data.arn
         }
       ]
