@@ -1,1 +1,10 @@
-snoke/variables.tf
+instance/.tfvars
+instance/terraform.tfstate
+instance/terraform.tfstate.backup
+instance/.terraform
+instance/.terraform.lock.hcl
+
+admin_db/terraform.tfstate
+admin_db/terraform.tfstate.backup
+admin_db/.terraform
+admin_db/.terraform.lock.hcl
