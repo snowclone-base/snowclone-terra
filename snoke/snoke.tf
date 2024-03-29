@@ -61,28 +61,30 @@ resource "aws_security_group" "rds" {
   name        = "${var.project_name}_rds"
   vpc_id      = aws_default_vpc.default_vpc.id
   description = "only reachable from api servers"
-
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    cidr_blocks     = ["0.0.0.0/0"]
-    security_groups = [aws_security_group.api_servers.id]
-  }
-
-  egress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    cidr_blocks     = ["0.0.0.0/0"]
-    security_groups = [aws_security_group.api_servers.id]
-  }
-
   tags = {
     Name = "${var.project_name}_rds"
   }
 }
 
+# DB ingress rule from API
+resource "aws_vpc_security_group_ingress_rule" "allow-api-to-db" {
+  security_group_id = aws_db_instance.rds-db.id
+
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.api_servers.id
+}
+
+# DB egress rule to API
+resource "aws_vpc_security_group_egress_rule" "allow-db-to-api" {
+  security_group_id = aws_db_instance.rds-db.id
+
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.api_servers.id
+}
 
 ######################################################################################
 #                           END New RDS Section                                      #
@@ -154,28 +156,46 @@ resource "aws_security_group" "api_servers" {
   name        = "${var.project_name}_api_sg"
   description = "only reachable from lb and db."
   vpc_id      = aws_default_vpc.default_vpc.id
-
-  ingress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    cidr_blocks     = ["0.0.0.0/0"]
-    security_groups = [aws_security_group.web_traffic.id, aws_security_group.rds.id]
-  }
-
-  egress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    cidr_blocks     = ["0.0.0.0/0"]
-    security_groups = [aws_security_group.web_traffic.id, aws_security_group.rds.id]
-  }
-
   tags = {
     Name = "${var.project_name}_api_sg"
   }
 }
 
+# API ingress rule from alb
+resource "aws_vpc_security_group_ingress_rule" "alb-to-api" {
+  security_group_id = aws_security_group.api_servers.id
+
+  ip_protocol                  = -1
+  referenced_security_group_id = aws_security_group.web_traffic.id
+}
+
+# API ingress rule from db
+resource "aws_vpc_security_group_ingress_rule" "db-to-api" {
+  security_group_id = aws_security_group.api_servers.id
+
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.rds.id
+}
+
+# API Egress rule to alb
+resource "aws_vpc_security_group_egress_rule" "api-to-alb" {
+  security_group_id = aws_security_group.api_servers.id
+
+  ip_protocol                  = -1
+  referenced_security_group_id = aws_security_group.web_traffic.id
+}
+
+# API Egress rule to db
+resource "aws_vpc_security_group_egress_rule" "api-to-db" {
+  security_group_id = aws_security_group.api_servers.id
+
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.rds.id
+}
 
 
 # Create an SSL/TLS certificate
