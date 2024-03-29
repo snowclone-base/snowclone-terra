@@ -18,16 +18,23 @@ resource "aws_ecs_task_definition" "api" {
         }
       ]
       essential = true
+      secrets = [
+        {
+          name      = "PG_USER"
+          valueFrom = data.aws_secretsmanager_secret_version.postgres_username_data.arn
+        },
+        {
+          name      = "PG_PASSWORD"
+          valueFrom = data.aws_secretsmanager_secret_version.postgres_password_data.arn
+        }
+      ]
       environment = [
-        { name = "PG_USER", value = "postgres" },
-        { name = "PG_PASSWORD", value = "${data.aws_secretsmanager_secret_version.retrieved_secret.secret_string}" },
-        { name = "PG_HOST", value = "${aws_db_instance.rds-db.address}" },
+        { name = "PG_HOST", value = aws_db_instance.rds-db.address },
         { name = "PG_PORT", value = "5432" },
         { name = "PG_DATABASE", value = "postgres" }
-        # { name = "DATABASE_URL", value = "postgresql://postgres:postgres@${aws_db_instance.rds-db.endpoint}/postgres" }
       ]
       healthcheck = {
-        command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], # Example health check command
+        command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], 
         interval    = 5,
         timeout     = 5,
         startPeriod = 10,
@@ -44,8 +51,7 @@ resource "aws_ecs_task_definition" "api" {
     },
     {
       name  = "schema-server-container"
-      image = "snowclone/schema-server:2.0.2"
-
+      image = "snowclone/schema-server:3.0.0"
       portMappings = [
         {
           name          = "schema-server-port-8080"
@@ -53,12 +59,27 @@ resource "aws_ecs_task_definition" "api" {
         }
       ]
       essential = true
+      secrets = [
+        {
+          name      = "PG_USER"
+          valueFrom = data.aws_secretsmanager_secret_version.postgres_username_data.arn
+        },
+        {
+          name      = "PG_PASSWORD"
+          valueFrom = data.aws_secretsmanager_secret_version.postgres_password_data.arn
+        },
+        {
+          name      = "API_TOKEN"
+          valueFrom = data.aws_secretsmanager_secret_version.api_token_data.arn
+        }
+      ]
       environment = [
-        { name = "DATABASE_URL", value = "postgresql://postgres:${data.aws_secretsmanager_secret_version.retrieved_secret.secret_string}@${aws_db_instance.rds-db.endpoint}/postgres" },
-        { name = "API_TOKEN", value = "helo" },
+        { name = "PG_HOST", value = aws_db_instance.rds-db.address },
+        { name = "PG_PORT", value = "5432" },
+        { name = "PG_DATABASE", value = "postgres" }
       ]
       healthcheck = {
-        command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], # Example health check command
+        command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], 
         interval    = 5,
         timeout     = 5,
         startPeriod = 10,
@@ -89,8 +110,6 @@ resource "aws_ecs_task_definition" "postgrest" {
     {
       name  = "postgrest-container"
       image = "snowclone/postg-rest:latest"
-      #   memory = 512
-      #   cpu    = 256
       portMappings = [
         {
           name          = "postgrest-port-3000"
@@ -98,13 +117,18 @@ resource "aws_ecs_task_definition" "postgrest" {
         }
       ]
       essential = true
+      secrets = [
+        {
+          name      = "JWT_SECRET"
+          valueFrom = data.aws_secretsmanager_secret_version.jwt_secret_data.arn
+        }
+      ]
       environment = [
         { name = "PGRST_DB_URI", value = "postgres://authenticator:mysecretpassword@${aws_db_instance.rds-db.endpoint}/postgres" },
         { name = "PGRST_DB_SCHEMA", value = "api" },
         { name = "PGRST_DB_ANON_ROLE", value = "anon" },
         { name = "PGRST_OPENAPI_SERVER_PROXY_URI", value = "http://localhost:3000" },
-        { name = "PGRST_ADMIN_SERVER_PORT", value = "3001" },
-        { name = "PGRST_JWT_SECRET", value = "O9fGlY0rDdDyW1SdCTaoqLmgQ2zZeCz6" } #added so we could test adding to db
+        { name = "PGRST_ADMIN_SERVER_PORT", value = "3001" }
       ],
       healthcheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:3001/ready || exit 1"]

@@ -9,8 +9,8 @@ resource "aws_db_instance" "rds-db" {
   parameter_group_name   = aws_db_parameter_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
-  username               = "postgres"
-  password               = data.aws_secretsmanager_secret_version.retrieved_secret.secret_string
+  username               = data.aws_secretsmanager_secret_version.postgres_username_data.secret_string
+  password               = data.aws_secretsmanager_secret_version.postgres_password_data.secret_string
 }
 
 # create parameter group for db
