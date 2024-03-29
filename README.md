@@ -1,26 +1,22 @@
 # snowclone-terra
 infrastructure provisioning
 
-create a variables.tf file in snoke and include the following: 
+- Create a .tfvars file in /instance and include the following: 
 
-variable "region" {
-  type    = string
-  default = <AWS_REGION>
-}
+```
+access_key        = <ACCESS_KEY>
+secret_key        = <SECRET_KEY>
+region            = <REGION>
+project_name      = <PROJECT_NAME>
+domain_name       = <DOMAIN_NAME>
+postgres_username = <USERNAME> (cannot be admin)
+postgres_password = <PASSWORD> (must be at least 8 characters)
+api_token         = <REGION> 
+jwt_secret        = <REGION> (must be 32 characters)
+```
 
-variable "project_name" {
-    type = string
-    default = <YOUR_PROJECT_NAME>
-}
-
-variable "domain_name" {
-    type = string
-    default = <YOUR_DOMAIN_NAME>
-}
-
-You must have a Route53 Domain registered in your AWS Account.
-
-In order for the Postgrest service to run, you need to send a curl request with the apiSchema.sql file as follows
-`curl -H "Authorization: Bearer <API_TOKEN>" -F 'file=@apiSchema.sql' https://<PROJECT_NAME>.<DOMAIN_NAME>/schema` 
+- You must have a Route53 Domain registered in your AWS Account.
+- Run the apply with `terraform apply -var-file=example.tfvars`
+- Run the following curl request `curl -H "Authorization: Bearer <API_TOKEN>" -F 'file=@apiSchema.sql' https://<PROJECT_NAME>.<DOMAIN_NAME>/schema` to get the Postgrest service to run healthy
 
 (Contents of apiSchema.sql can be found in main repo.)
