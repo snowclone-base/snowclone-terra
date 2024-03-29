@@ -115,7 +115,7 @@ resource "aws_cloudwatch_log_group" "ecs_logs" {
 }
 
 # provision security group for load balancer
-resource "aws_security_group" "web_traffic" {
+resource "aws_security_group" "alb_web_traffic" {
   name        = "lb_sg"
   description = "only allow http and https inbound. allow all outbound"
   vpc_id      = aws_default_vpc.default_vpc.id
@@ -126,7 +126,7 @@ resource "aws_security_group" "web_traffic" {
 
 # lb Ingress rules
 resource "aws_vpc_security_group_ingress_rule" "http" {
-  security_group_id = aws_security_group.web_traffic.id
+  security_group_id = aws_security_group.alb_web_traffic.id
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 80
@@ -135,7 +135,7 @@ resource "aws_vpc_security_group_ingress_rule" "http" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "https" {
-  security_group_id = aws_security_group.web_traffic.id
+  security_group_id = aws_security_group.alb_web_traffic.id
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 443
@@ -145,7 +145,7 @@ resource "aws_vpc_security_group_ingress_rule" "https" {
 
 # lb Egress rules
 resource "aws_vpc_security_group_egress_rule" "allow_all" {
-  security_group_id = aws_security_group.web_traffic.id
+  security_group_id = aws_security_group.alb_web_traffic.id
 
   cidr_ipv4   = "0.0.0.0/0"
   ip_protocol = -1 #all protocols
@@ -154,7 +154,7 @@ resource "aws_vpc_security_group_egress_rule" "allow_all" {
 # API servers security group
 resource "aws_security_group" "api_servers" {
   name        = "${var.project_name}_api_sg"
-  description = "only reachable from lb and db."
+  description = "only reachable from lb and db. NAT allows image pulls"
   vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
     Name = "${var.project_name}_api_sg"
@@ -166,7 +166,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb-to-api" {
   security_group_id = aws_security_group.api_servers.id
 
   ip_protocol                  = -1
-  referenced_security_group_id = aws_security_group.web_traffic.id
+  referenced_security_group_id = aws_security_group.alb_web_traffic.id
 }
 
 # API ingress rule from db
@@ -179,22 +179,12 @@ resource "aws_vpc_security_group_ingress_rule" "db-to-api" {
   referenced_security_group_id = aws_security_group.rds.id
 }
 
-# API Egress rule to alb
-resource "aws_vpc_security_group_egress_rule" "api-to-alb" {
+# API egress rule. Wide open to allow for image pulls. 
+resource "aws_vpc_security_group_egress_rule" "allow-all" {
   security_group_id = aws_security_group.api_servers.id
 
-  ip_protocol                  = -1
-  referenced_security_group_id = aws_security_group.web_traffic.id
-}
-
-# API Egress rule to db
-resource "aws_vpc_security_group_egress_rule" "api-to-db" {
-  security_group_id = aws_security_group.api_servers.id
-
-  from_port                    = 5432
-  ip_protocol                  = "tcp"
-  to_port                      = 5432
-  referenced_security_group_id = aws_security_group.rds.id
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = -1
 }
 
 
@@ -240,7 +230,7 @@ resource "aws_lb" "alb" {
   name               = "${var.project_name}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.web_traffic.id]
+  security_groups    = [aws_security_group.alb_web_traffic.id]
   subnets            = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
 }
 
@@ -558,11 +548,16 @@ resource "aws_route_table" "private" {
     cidr_block = "172.31.0.0/16"
     gateway_id = "local"
   }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.nat.id
+  }
 }
 
 # private subnet a
 resource "aws_subnet" "private_subnet_a" {
-  cidr_block        = "172.31.254.0/24"
+  cidr_block        = "172.31.253.0/24"
   vpc_id            = aws_default_vpc.default_vpc.id
   availability_zone = "${var.region}a"
 }
@@ -583,6 +578,17 @@ resource "aws_route_table_association" "a" {
 resource "aws_route_table_association" "b" {
   subnet_id      = aws_subnet.private_subnet_b.id
   route_table_id = aws_route_table.private.id
+}
+
+# create elastic ip to be used by NAT
+resource "aws_eip" "nat" {
+  domain = "vpc"
+}
+
+#create NAT gateway
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_default_subnet.default_subnet_a.id
 }
 
 
