@@ -68,7 +68,7 @@ resource "aws_security_group" "rds" {
 
 # DB ingress rule from API
 resource "aws_vpc_security_group_ingress_rule" "allow-api-to-db" {
-  security_group_id = aws_db_instance.rds-db.id
+  security_group_id = aws_security_group.rds.id
 
   from_port                    = 5432
   ip_protocol                  = "tcp"
@@ -78,7 +78,7 @@ resource "aws_vpc_security_group_ingress_rule" "allow-api-to-db" {
 
 # DB egress rule to API
 resource "aws_vpc_security_group_egress_rule" "allow-db-to-api" {
-  security_group_id = aws_db_instance.rds-db.id
+  security_group_id = aws_security_group.rds.id
 
   from_port                    = 5432
   ip_protocol                  = "tcp"
