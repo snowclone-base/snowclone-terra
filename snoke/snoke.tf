@@ -1,5 +1,5 @@
 provider "aws" {
-  region     = var.region
+  region = var.region
 }
 
 # create ECS task execution role
@@ -58,21 +58,24 @@ resource "aws_db_parameter_group" "rds" {
 }
 
 resource "aws_security_group" "rds" {
-  name   = "${var.project_name}_rds"
-  vpc_id = aws_default_vpc.default_vpc.id
+  name        = "${var.project_name}_rds"
+  vpc_id      = aws_default_vpc.default_vpc.id
+  description = "only reachable from api servers"
 
   ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    cidr_blocks     = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.api_servers.id]
   }
 
   egress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    cidr_blocks     = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.api_servers.id]
   }
 
   tags = {
@@ -109,31 +112,71 @@ resource "aws_cloudwatch_log_group" "ecs_logs" {
   retention_in_days = 30 # Adjust retention policy as needed
 }
 
-# provision security groups
-resource "aws_security_group" "allow_all" {
+# provision security group for load balancer
+resource "aws_security_group" "web_traffic" {
   name        = "lb_sg"
-  description = "testing out ingress and egress in tf "
+  description = "only allow http and https inbound. allow all outbound"
   vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
-    Name = "openBothWays"
+    Name = "internet_facing_alb"
   }
 }
 
-# Ingress rule
-resource "aws_vpc_security_group_ingress_rule" "allow_all" {
-  security_group_id = aws_security_group.allow_all.id
+# lb Ingress rules
+resource "aws_vpc_security_group_ingress_rule" "http" {
+  security_group_id = aws_security_group.web_traffic.id
 
   cidr_ipv4   = "0.0.0.0/0"
-  ip_protocol = -1 #all protocols
+  from_port   = 80
+  ip_protocol = "tcp"
+  to_port     = 80
 }
 
-# Egress rule
+resource "aws_vpc_security_group_ingress_rule" "https" {
+  security_group_id = aws_security_group.web_traffic.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 443
+  ip_protocol = "tcp"
+  to_port     = 443
+}
+
+# lb Egress rules
 resource "aws_vpc_security_group_egress_rule" "allow_all" {
-  security_group_id = aws_security_group.allow_all.id
+  security_group_id = aws_security_group.web_traffic.id
 
   cidr_ipv4   = "0.0.0.0/0"
   ip_protocol = -1 #all protocols
 }
+
+# API servers security group
+resource "aws_security_group" "api_servers" {
+  name        = "api_sg"
+  description = "only reachable from lb and db."
+  vpc_id      = aws_default_vpc.default_vpc.id
+
+  ingress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.web_traffic.id, aws_security_group.rds.id]
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.web_traffic.id, aws_security_group.rds.id]
+  }
+
+  tags = {
+    Name = "${var.project_name}_api_sg"
+  }
+}
+
+
 
 # Create an SSL/TLS certificate
 resource "aws_acm_certificate" "cert" {
@@ -174,10 +217,10 @@ resource "aws_acm_certificate_validation" "cert" {
 
 # provision ALB
 resource "aws_lb" "alb" {
-  name               =  "${var.project_name}-alb"
+  name               = "${var.project_name}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.allow_all.id] # need to make SGs
+  security_groups    = [aws_security_group.web_traffic.id]
   subnets            = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
 }
 
@@ -450,15 +493,15 @@ resource "aws_ecs_service" "api-service" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.tg-schema-server.arn # Reference the target group
+    target_group_arn = aws_lb_target_group.tg-schema-server.arn
     container_name   = "schema-server-container"
     container_port   = 5175 # Specify the container port
   }
 
   network_configuration {
-    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
-    assign_public_ip = true                              # Provide the containers with public IPs
-    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    assign_public_ip = false
+    security_groups  = [aws_security_group.api_servers.id]
   }
 }
 
@@ -472,22 +515,46 @@ resource "aws_ecs_service" "postgrest-service" {
   depends_on      = [aws_db_instance.rds-db] #wait for the db to be ready
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.tg-postgrest.arn # Reference the target group
+    target_group_arn = aws_lb_target_group.tg-postgrest.arn
     container_name   = "postgrest-container"
     container_port   = 3000 # Specify the container port.
   }
 
   network_configuration {
-    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
-    assign_public_ip = true                              # Provide the containers with public IPs
-    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    assign_public_ip = false
+    security_groups  = [aws_security_group.api_servers.id]
   }
 }
 
 # VPC and private subnets
 resource "aws_default_vpc" "default_vpc" {}
 
-# Provide references to your default subnets
+# new route table for private subnet
+resource "aws_route_table" "private" {
+  vpc_id = aws_default_vpc.default_vpc.id
+
+  route {
+    cidr_block = "172.31.0.0/16"
+    gateway_id = "local"
+  }
+}
+
+# private subnet a
+resource "aws_subnet" "private_subnet_a" {
+  cidr_block        = "172.31.254.0/24"
+  vpc_id            = aws_default_vpc.default_vpc.id
+  availability_zone = "${var.region}a"
+}
+
+#private subnet b
+resource "aws_subnet" "private_subnet_b" {
+  cidr_block        = "172.31.255.0/24"
+  vpc_id            = aws_default_vpc.default_vpc.id
+  availability_zone = "${var.region}b"
+}
+
+# default public subnets
 resource "aws_default_subnet" "default_subnet_a" {
   availability_zone = "${var.region}a"
 }
