@@ -39,6 +39,7 @@ resource "aws_db_instance" "rds-db" {
   engine_version         = "14"
   instance_class         = "db.t3.micro"
   parameter_group_name   = aws_db_parameter_group.rds.name
+  db_subnet_group_name   = aws_db_subnet_group.rds-postgres.id
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
   username               = "postgres"
@@ -84,6 +85,15 @@ resource "aws_vpc_security_group_egress_rule" "allow-db-to-api" {
   ip_protocol                  = "tcp"
   to_port                      = 5432
   referenced_security_group_id = aws_security_group.api_servers.id
+}
+
+resource "aws_db_subnet_group" "rds-postgres" {
+  name       = "${var.project_name}_rdd_subnet_group"
+  subnet_ids = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_a.id]
+
+  tags = {
+    Name = "My DB subnet group"
+  }
 }
 
 ######################################################################################
