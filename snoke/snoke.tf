@@ -118,7 +118,7 @@ resource "aws_security_group" "web_traffic" {
   description = "only allow http and https inbound. allow all outbound"
   vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
-    Name = "internet_facing_alb"
+    Name = "${var.project_name}_internet_facing_alb"
   }
 }
 
@@ -151,7 +151,7 @@ resource "aws_vpc_security_group_egress_rule" "allow_all" {
 
 # API servers security group
 resource "aws_security_group" "api_servers" {
-  name        = "api_sg"
+  name        = "${var.project_name}_api_sg"
   description = "only reachable from lb and db."
   vpc_id      = aws_default_vpc.default_vpc.id
 
@@ -553,6 +553,18 @@ resource "aws_subnet" "private_subnet_b" {
   vpc_id            = aws_default_vpc.default_vpc.id
   availability_zone = "${var.region}b"
 }
+
+#associate private subnets with private route table
+resource "aws_route_table_association" "a" {
+  subnet_id      = aws_subnet.private_subnet_a.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "b" {
+  subnet_id      = aws_subnet.private_subnet_b.id
+  route_table_id = aws_route_table.private.id
+}
+
 
 # default public subnets
 resource "aws_default_subnet" "default_subnet_a" {
