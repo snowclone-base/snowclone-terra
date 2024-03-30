@@ -34,7 +34,7 @@ resource "aws_iam_role_policy_attachment" "ecs-task-permissions" {
 resource "aws_db_instance" "rds-db" {
   allocated_storage      = 10
   apply_immediately      = true
-  db_name                = "postgres"
+  db_name                = "${var.project_name}_pg_db"
   engine                 = "postgres"
   engine_version         = "14"
   instance_class         = "db.t3.micro"
@@ -49,7 +49,7 @@ resource "aws_db_instance" "rds-db" {
 
 # create parameter group for db
 resource "aws_db_parameter_group" "rds" {
-  name   = var.project_name
+  name   = "${var.project_name}-db-param-group"
   family = "postgres14"
 
   parameter {
@@ -88,11 +88,11 @@ resource "aws_vpc_security_group_egress_rule" "allow-db-to-api" {
 }
 
 resource "aws_db_subnet_group" "rds-postgres" {
-  name       = "${var.project_name}_rdd_subnet_group"
-  subnet_ids = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_a.id]
+  name       = "${var.project_name}_rds_subnet_group"
+  subnet_ids = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
 
   tags = {
-    Name = "My DB subnet group"
+    Name = "RDS-db subnet group"
   }
 }
 
