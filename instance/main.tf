@@ -3,7 +3,7 @@ resource "aws_lb" "alb" {
   name               = "${var.project_name}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.allow_all.id] # need to make SGs
+  security_groups    = [aws_security_group.alb_web_traffic.id]
   subnets            = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
 }
 
@@ -155,9 +155,9 @@ resource "aws_ecs_service" "api-service" {
   }
 
   network_configuration {
-    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
-    assign_public_ip = true                              # Provide the containers with public IPs
-    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    assign_public_ip = false
+    security_groups  = [aws_security_group.api_servers.id]
   }
 }
 
@@ -177,9 +177,9 @@ resource "aws_ecs_service" "postgrest-service" {
   }
 
   network_configuration {
-    subnets          = [aws_default_subnet.default_subnet_a.id, aws_default_subnet.default_subnet_b.id]
-    assign_public_ip = true                              # Provide the containers with public IPs
-    security_groups  = [aws_security_group.allow_all.id] # Set up the security group
+    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    assign_public_ip = false
+    security_groups  = [aws_security_group.api_servers.id]
   }
 }
 
