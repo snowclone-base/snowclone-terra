@@ -31,6 +31,6 @@ resource "aws_db_subnet_group" "rds-postgres" {
   subnet_ids = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
 
   tags = {
-    Name = "RDS-db-subnet-group"
+    Name = "${var.project_name}_rds"
   }
 }
