@@ -13,6 +13,10 @@ data "aws_lb" "alb" {
   depends_on = [aws_lb.alb]
 }
 
+data "aws_route53_zone" "zone" {
+  zone_id = var.aws_route53_zone_id
+}
+
 # Create Route 53 record
 resource "aws_route53_record" "alb_record" {
   zone_id = data.aws_route53_zone.zone.zone_id
@@ -24,7 +28,7 @@ resource "aws_route53_record" "alb_record" {
 
 # set up target groups
 resource "aws_lb_target_group" "tg-postgrest" {
-  name        = "tg-postgrest"
+  name        = "${var.project_name}-tg-postgrest"
   port        = "3000"
   protocol    = "HTTP"
   vpc_id      = aws_default_vpc.default_vpc.id
@@ -43,7 +47,7 @@ resource "aws_lb_target_group" "tg-postgrest" {
 }
 
 resource "aws_lb_target_group" "tg-eventserver" {
-  name        = "tg-eventserver"
+  name        = "${var.project_name}-tg-eventserver"
   port        = "8080"
   protocol    = "HTTP"
   vpc_id      = aws_default_vpc.default_vpc.id
@@ -51,7 +55,7 @@ resource "aws_lb_target_group" "tg-eventserver" {
 }
 
 resource "aws_lb_target_group" "tg-schema-server" {
-  name        = "tg-schema-server"
+  name        = "${var.project_name}-tg-schema-server"
   port        = "5175"
   protocol    = "HTTP"
   vpc_id      = aws_default_vpc.default_vpc.id
@@ -86,13 +90,17 @@ resource "aws_lb_listener" "alb-listener-http" {
   }
 }
 
+data "aws_acm_certificate" "cert" {
+  domain = "*.snowclone.xyz"
+}
+
 # Step 2: Configure the ALB listener with HTTPS
 resource "aws_lb_listener" "alb-listener-https" {
   load_balancer_arn = aws_lb.alb.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = aws_acm_certificate.cert.arn
+  certificate_arn   = data.aws_acm_certificate.cert.arn
 
   default_action {
     type             = "forward"
@@ -155,7 +163,8 @@ resource "aws_ecs_service" "api-service" {
   }
 
   network_configuration {
-    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    # update
+    subnets          = [data.aws_subnet.private_subnet_a.id, data.aws_subnet.private_subnet_b.id]
     assign_public_ip = false
     security_groups  = [aws_security_group.api_servers.id]
   }
@@ -177,7 +186,8 @@ resource "aws_ecs_service" "postgrest-service" {
   }
 
   network_configuration {
-    subnets          = [aws_subnet.private_subnet_a.id, aws_subnet.private_subnet_b.id]
+    # update subnet declaration
+    subnets          = [data.aws_subnet.private_subnet_a.id, data.aws_subnet.private_subnet_b.id]
     assign_public_ip = false
     security_groups  = [aws_security_group.api_servers.id]
   }
@@ -185,4 +195,8 @@ resource "aws_ecs_service" "postgrest-service" {
 
 output "app_url" {
   value = "${var.project_name}.${var.domain_name}"
+}
+
+terraform {
+    backend "s3" {}
 }

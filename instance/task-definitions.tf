@@ -5,7 +5,7 @@ resource "aws_ecs_task_definition" "api" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
+  execution_role_arn       = data.aws_iam_role.ecsTaskExecutionRole.arn
 
   container_definitions = jsonencode([
     {
@@ -104,7 +104,7 @@ resource "aws_ecs_task_definition" "postgrest" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
+  execution_role_arn       = data.aws_iam_role.ecsTaskExecutionRole.arn
 
   container_definitions = jsonencode([
     {
