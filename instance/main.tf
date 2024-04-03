@@ -91,7 +91,7 @@ resource "aws_lb_listener" "alb-listener-http" {
 }
 
 data "aws_acm_certificate" "cert" {
-  domain = "*.snowclone.xyz"
+  domain = "*.${var.domain_name}"
 }
 
 # Step 2: Configure the ALB listener with HTTPS

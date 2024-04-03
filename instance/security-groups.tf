@@ -2,7 +2,7 @@
 resource "aws_security_group" "alb_web_traffic" {
   name        = "${var.project_name}_lb_sg"
   description = "only allow http and https inbound. allow all outbound"
-  vpc_id      = data.aws_vpc.default_vpc.id
+  vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
     Name = "${var.project_name}_internet_facing_alb"
   }
@@ -39,7 +39,7 @@ resource "aws_vpc_security_group_egress_rule" "allow_all" {
 resource "aws_security_group" "api_servers" {
   name        = "${var.project_name}_api_sg"
   description = "only reachable from lb and db. NAT allows image pulls"
-  vpc_id      = data.aws_vpc.default_vpc.id
+  vpc_id      = aws_default_vpc.default_vpc.id
   tags = {
     Name = "${var.project_name}_api_sg"
   }
@@ -74,7 +74,7 @@ resource "aws_vpc_security_group_egress_rule" "allow-all" {
 # DB security group
 resource "aws_security_group" "rds" {
   name        = "${var.project_name}_rds"
-  vpc_id      = data.aws_vpc.default_vpc.id
+  vpc_id      = aws_default_vpc.default_vpc.id
   description = "only reachable from api servers"
   tags = {
     Name = "${var.project_name}_rds"
