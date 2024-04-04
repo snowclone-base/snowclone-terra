@@ -10,8 +10,8 @@ resource "aws_db_instance" "rds-db" {
   db_subnet_group_name   = aws_db_subnet_group.rds-postgres.id
   vpc_security_group_ids = [aws_security_group.rds.id]
   skip_final_snapshot    = true
-  username               = data.aws_secretsmanager_secret_version.postgres_username_data.secret_string
-  password               = data.aws_secretsmanager_secret_version.postgres_password_data.secret_string
+  username               = aws_secretsmanager_secret_version.postgres_username_secret_version.secret_string
+  password               = aws_secretsmanager_secret_version.postgres_password_secret_version.secret_string
 
 }
 

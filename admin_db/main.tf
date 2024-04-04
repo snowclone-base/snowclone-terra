@@ -19,5 +19,5 @@ output "private_subnet_b_id" {
 }
 
 terraform {
-    backend "s3" {}
+  backend "s3" {}
 }

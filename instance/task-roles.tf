@@ -17,10 +17,10 @@ resource "aws_iam_role_policy" "secret_access_policy" {
           "secretsmanager:DeleteSecret" // Added deletion permission
         ]
         Resource = [
-          data.aws_secretsmanager_secret_version.postgres_username_data.arn,
-          data.aws_secretsmanager_secret_version.postgres_password_data.arn,
-          data.aws_secretsmanager_secret_version.api_token_data.arn,
-          data.aws_secretsmanager_secret_version.jwt_secret_data.arn
+          aws_secretsmanager_secret_version.postgres_username_secret_version.arn,
+          aws_secretsmanager_secret_version.postgres_password_secret_version.arn,
+          aws_secretsmanager_secret_version.api_token_secret_version.arn,
+          aws_secretsmanager_secret_version.jwt_secret_secret_version.arn
         ]
       }
     ]

@@ -21,11 +21,11 @@ resource "aws_ecs_task_definition" "api" {
       secrets = [
         {
           name      = "PG_USER"
-          valueFrom = data.aws_secretsmanager_secret_version.postgres_username_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_username_secret_version.arn
         },
         {
           name      = "PG_PASSWORD"
-          valueFrom = data.aws_secretsmanager_secret_version.postgres_password_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_password_secret_version.arn
         }
       ]
       environment = [
@@ -34,7 +34,7 @@ resource "aws_ecs_task_definition" "api" {
         { name = "PG_DATABASE", value = "postgres" }
       ]
       healthcheck = {
-        command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"], 
+        command     = ["CMD-SHELL", "curl http://localhost:8080/ || exit 1"],
         interval    = 5,
         timeout     = 5,
         startPeriod = 10,
@@ -62,15 +62,15 @@ resource "aws_ecs_task_definition" "api" {
       secrets = [
         {
           name      = "PG_USER"
-          valueFrom = data.aws_secretsmanager_secret_version.postgres_username_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_username_secret_version.arn
         },
         {
           name      = "PG_PASSWORD"
-          valueFrom = data.aws_secretsmanager_secret_version.postgres_password_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_password_secret_version.arn
         },
         {
           name      = "API_TOKEN"
-          valueFrom = data.aws_secretsmanager_secret_version.api_token_data.arn
+          valueFrom = aws_secretsmanager_secret_version.api_token_secret_version.arn
         }
       ]
       environment = [
@@ -79,7 +79,7 @@ resource "aws_ecs_task_definition" "api" {
         { name = "PG_DATABASE", value = "postgres" }
       ]
       healthcheck = {
-        command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"], 
+        command     = ["CMD-SHELL", "curl http://localhost:5175/V1/api || exit 1"],
         interval    = 5,
         timeout     = 5,
         startPeriod = 10,
@@ -120,7 +120,7 @@ resource "aws_ecs_task_definition" "postgrest" {
       secrets = [
         {
           name      = "PGRST_JWT_SECRET"
-          valueFrom = data.aws_secretsmanager_secret_version.jwt_secret_data.arn
+          valueFrom = aws_secretsmanager_secret_version.jwt_secret_secret_version.arn
         }
       ]
       environment = [
