@@ -197,6 +197,6 @@ output "app_url" {
   value = "${var.project_name}.${var.domain_name}"
 }
 
-# terraform {
-#   backend "s3" {}
-# }
+terraform {
+  backend "s3" {}
+}

@@ -18,6 +18,6 @@ output "private_subnet_b_id" {
   value = aws_subnet.private_subnet_b.id
 }
 
-# terraform {
-#     backend "s3" {}
-# }
+terraform {
+  backend "s3" {}
+}
