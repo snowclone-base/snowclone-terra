@@ -10,7 +10,7 @@ resource "aws_acm_certificate" "cert" {
 
 resource "aws_route53_zone" "zone" {
   name = var.domain_name
-  # private_zone = false
+  # private_zone = false  ## data resource has this property, but not actual resource
 }
 
 resource "aws_route53_record" "record" {
