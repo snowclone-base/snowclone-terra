@@ -21,11 +21,11 @@ resource "aws_ecs_task_definition" "api" {
       secrets = [
         {
           name      = "PG_USER"
-          valueFrom = aws_secretsmanager_secret_version.postgres_username_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_username_secret_version.arn
         },
         {
           name      = "PG_PASSWORD"
-          valueFrom = aws_secretsmanager_secret_version.postgres_password_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_password_secret_version.arn
         }
       ]
       environment = [
@@ -62,15 +62,15 @@ resource "aws_ecs_task_definition" "api" {
       secrets = [
         {
           name      = "PG_USER"
-          valueFrom = aws_secretsmanager_secret_version.postgres_username_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_username_secret_version.arn
         },
         {
           name      = "PG_PASSWORD"
-          valueFrom = aws_secretsmanager_secret_version.postgres_password_data.arn
+          valueFrom = aws_secretsmanager_secret_version.postgres_password_secret_version.arn
         },
         {
           name      = "API_TOKEN"
-          valueFrom = aws_secretsmanager_secret_version.api_token_data.arn
+          valueFrom = aws_secretsmanager_secret_version.api_token_secret_version.arn
         }
       ]
       environment = [
@@ -120,7 +120,7 @@ resource "aws_ecs_task_definition" "postgrest" {
       secrets = [
         {
           name      = "PGRST_JWT_SECRET"
-          valueFrom = aws_secretsmanager_secret_version.jwt_secret_data.arn
+          valueFrom = aws_secretsmanager_secret_version.jwt_secret_secret_version.arn
         }
       ]
       environment = [
