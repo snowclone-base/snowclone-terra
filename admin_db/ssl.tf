@@ -8,9 +8,9 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
-data "aws_route53_zone" "zone" {
-  name         = var.domain_name
-  private_zone = false
+resource "aws_route53_zone" "zone" {
+  name = var.domain_name
+  # private_zone = false
 }
 
 resource "aws_route53_record" "record" {
@@ -27,7 +27,7 @@ resource "aws_route53_record" "record" {
   records         = [each.value.record]
   ttl             = 60
   type            = each.value.type
-  zone_id         = data.aws_route53_zone.zone.zone_id
+  zone_id         = aws_route53_zone.zone.zone_id
 }
 
 resource "aws_acm_certificate_validation" "cert" {
@@ -36,5 +36,5 @@ resource "aws_acm_certificate_validation" "cert" {
 }
 
 output "aws_route53_zone_id" {
-  value = data.aws_route53_zone.zone.zone_id
+  value = aws_route53_zone.zone.zone_id
 }
